@@ -172,6 +172,9 @@
     @media (max-width:440px) { h1 { font-size:46px; } .hero-text { font-size:16px; } .art-sticker { width:78px; height:78px; font-size:11px; } .calendar-panel,.day-panel { padding:18px; } .session { grid-template-columns:70px minmax(0,1fr); gap:9px; } .age-tag { grid-column:2; justify-self:start; } .day-top { flex-direction:column; gap:8px; } .day-top h3 { font-size:25px; } .field-grid { grid-template-columns:1fr; } .form-card { padding:22px; } .footer-inner { align-items:start; flex-direction:column; } .gallery { grid-template-rows:240px repeat(2,180px); gap:9px; } .gallery figure { border-radius:12px; } }
     @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } *,*::before,*::after { animation:none !important; transition:none !important; } }
   </style>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+  <script>emailjs.init("AYtEBPT0Qe0W1DiMh");</script>
 </head>
 <body>
   <header class="site-header">
@@ -527,22 +530,141 @@
 
       form.addEventListener('input', () => { result.classList.remove('show'); latestApplication=null; });
       form.addEventListener('change', () => { result.classList.remove('show'); latestApplication=null; });
-      form.addEventListener('submit', event => {
+      form.addEventListener('submit', async event => {
         event.preventDefault();
-        if (!form.reportValidity()) return;
-        const values=new FormData(form);
-        const age=Number(values.get('age'));
-        const group=groupFor(age);
-        const date=String(values.get('startDate'));
-        if (!group || !/^2027-(06|07|08)-\d{2}$/.test(date) || !available(Number(date.slice(5,7))-1, Number(date.slice(8,10)))) return;
-        for (const field of ['parent-name','phone','child-name','venue-address','health']) {
-          if (field==='venue-address' && venueType.value!=='fokot') continue;
-          const input=document.getElementById(field);
-          if (!input.value.trim()) { input.setCustomValidity('Заполните это поле.'); input.reportValidity(); input.addEventListener('input', () => input.setCustomValidity(''), {once:true}); return; }
+        
+        if (!form.reportValidity()) {
+          return;
         }
-        latestApplication={parentName:String(values.get('parentName')).trim(), phone:String(values.get('phone')).trim(), childName:String(values.get('childName')).trim(), age, group:group.age, time:`${group.time}–${group.end}`, district:String(values.get('district')), date, venueType:venueType.value==='school'?'Школьный стадион':'ФОКОТ', venueAddress:venueType.value==='school'?String(values.get('school')):String(values.get('venueAddress')).trim(), health:String(values.get('health')).trim()};
-        document.getElementById('result-text').textContent=`${latestApplication.childName}, группа ${group.age}, ${formatDate(date)}, ${group.time}–${group.end}. Скачайте файл и передайте его организатору: запись пока не подтверждена.`;
-        result.classList.add('show'); result.scrollIntoView({behavior:'smooth',block:'nearest'});
+        
+        const values = new FormData(form);
+        const age = Number(values.get('age'));
+        const group = groupFor(age);
+        const date = String(values.get('startDate'));
+        
+        if (!group || !/^2027-(06|07|08)-\d{2}$/.test(date)) {
+          alert('Пожалуйста, укажите возраст от 6 до 17 лет и корректную дату.');
+          return;
+        }
+        
+        for (const field of ['parent-name', 'phone', 'child-name', 'health']) {
+          const input = document.getElementById(field);
+          if (!input.value.trim()) {
+            input.setCustomValidity('Заполните это поле.');
+            input.reportValidity();
+            input.addEventListener('input', () => input.setCustomValidity(''), {once: true});
+            return;
+          }
+        }
+        
+        const applicationData = {
+          parentName: String(values.get('parentName')).trim(),
+          phone: String(values.get('phone')).trim(),
+          childName: String(values.get('childName')).trim(),
+          age: age,
+          group: group.age,
+          time: `${group.time}–${group.end}`,
+          district: String(values.get('district')),
+          date: formatDate(date),
+          venueType: venueType.value === 'school' ? 'Школьный стадион' : 'ФОКОТ',
+          venueAddress: venueType.value === 'school' 
+            ? String(values.get('school')) 
+            : String(values.get('venueAddress')).trim(),
+          health: String(values.get('health')).trim(),
+          timestamp: new Date().toISOString()
+        };
+        
+        const submitBtn = form.querySelector('button[type="submit"]');
+        const originalText = submitBtn.textContent;
+        submitBtn.textContent = '⏳ Отправка...';
+        submitBtn.disabled = true;
+        
+        try {
+          const ws_data = [
+            ['Поле', 'Значение'],
+            ['ФИО родителя', applicationData.parentName],
+            ['Телефон', applicationData.phone],
+            ['ФИО ребёнка', applicationData.childName],
+            ['Возраст', applicationData.age],
+            ['Группа', applicationData.group],
+            ['Дата начала', applicationData.date],
+            ['Время занятий', applicationData.time],
+            ['Район', applicationData.district],
+            ['Тип площадки', applicationData.venueType],
+            ['Площадка', applicationData.venueAddress],
+            ['Особенности здоровья', applicationData.health],
+            ['Дата заявки', applicationData.timestamp]
+          ];
+          
+          const wb = XLSX.utils.book_new();
+          const ws = XLSX.utils.aoa_to_sheet(ws_data);
+          XLSX.utils.book_append_sheet(wb, ws, "Заявка");
+          const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+          
+          const templateParams = {
+            to_email: 'dvorovoitrener@mail.ru',
+            parent_name: applicationData.parentName,
+            phone: applicationData.phone,
+            child_name: applicationData.childName,
+            age: applicationData.age,
+            group: applicationData.group,
+            date: applicationData.date,
+            time: applicationData.time,
+            district: applicationData.district,
+            venue_type: applicationData.venueType,
+            venue_address: applicationData.venueAddress,
+            health: applicationData.health,
+            attachment: wbout
+          };
+          
+          const response = await emailjs.send(
+            'service_kvmixli',
+            '__ejs-test-mail-service__',
+            templateParams
+          );
+          
+          console.log('✅ Заявка отправлена успешно:', response);
+          latestApplication = {...applicationData, date};
+          
+          document.getElementById('result-text').textContent = 
+            `✅ Заявка отправлена! Мы свяжемся с вами по телефону ${applicationData.phone} в ближайшее время.`;
+          document.getElementById('result').classList.add('show');
+          document.getElementById('result').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+          
+          form.reset();
+          agePreview.textContent = 'Возрастная группа появится после ввода возраста.';
+          updateVenueFields();
+          
+          setTimeout(() => {
+            document.getElementById('result').scrollIntoView({behavior: 'smooth', block: 'center'});
+          }, 100);
+          
+        } catch (error) {
+          console.error('❌ Ошибка при отправке:', error);
+          
+          let errorMessage = '❌ Ошибка при отправке заявки. ';
+          
+          if (error.text) {
+            if (error.text.includes('Template ID') || error.text.includes('template')) {
+              errorMessage += 'Проблема с шаблоном EmailJS. Проверьте настройки.';
+            } else if (error.text.includes('Service')) {
+              errorMessage += 'Проблема с сервисом EmailJS.';
+            } else {
+              errorMessage += error.text;
+            }
+          } else if (error.status === 401) {
+            errorMessage += 'Ошибка авторизации. Проверьте Public Key.';
+          } else if (error.status === 500) {
+            errorMessage += 'Ошибка сервера EmailJS. Попробуйте позже.';
+          } else {
+            errorMessage += 'Проверьте интернет-соединение или попробуйте позже.';
+          }
+          
+          alert(errorMessage);
+        } finally {
+          submitBtn.textContent = originalText;
+          submitBtn.disabled = false;
+        }
       });
       document.getElementById('download').addEventListener('click', () => {
         if (!latestApplication) return;
